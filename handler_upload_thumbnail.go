@@ -1,6 +1,8 @@
 package main
 
 import (
+	"crypto/rand"
+	"encoding/base64"
 	"fmt"
 	"io"
 	"mime"
@@ -52,6 +54,7 @@ func (cfg *apiConfig) handlerUploadThumbnail(w http.ResponseWriter, r *http.Requ
 	}
 	if err != nil {
 		respondWithError(w, http.StatusBadRequest, "Unable to parse media type", err)
+		return
 	}
 	metaData, err := cfg.db.GetVideo(videoID)
 	if err != nil {
@@ -63,8 +66,16 @@ func (cfg *apiConfig) handlerUploadThumbnail(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
+	var sliceOfBytes [32]byte
+	_, err = rand.Read(sliceOfBytes[:])
+	if err != nil {
+		respondWithError(w, http.StatusBadRequest, "Unable to get random bytes", err)
+		return
+	}
+	encoded := base64.RawURLEncoding.EncodeToString(sliceOfBytes[:])
+
 	extension := strings.Split(media, "/")
-	p := fmt.Sprintf("%s.%s", videoIDString, extension[1])
+	p := fmt.Sprintf("%s.%s", encoded, extension[1])
 	imagePath := filepath.Join(cfg.assetsRoot, p)
 	f, err := os.Create(imagePath)
 	if err != nil {
@@ -77,7 +88,7 @@ func (cfg *apiConfig) handlerUploadThumbnail(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	dataURL := fmt.Sprintf("http://localhost:%s/assets/%s.%s", cfg.port, videoIDString, extension[1])
+	dataURL := fmt.Sprintf("http://localhost:%s/assets/%s.%s", cfg.port, encoded, extension[1])
 
 	metaData.ThumbnailURL = &dataURL
 	if err = cfg.db.UpdateVideo(metaData); err != nil {
