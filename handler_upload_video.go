@@ -91,6 +91,31 @@ func (cfg *apiConfig) handlerUploadVideo(w http.ResponseWriter, r *http.Request)
 	extension := strings.Split(mediaType, "/")
 	fileKey := fmt.Sprintf("%s.%s", encoded, extension[1])
 
+	dataURL := fmt.Sprintf("https://%s.s3.%s.amazonaws.com/%s", cfg.s3Bucket, cfg.s3Region, fileKey)
+	metaData.VideoURL = &dataURL
+	err = cfg.db.UpdateVideo(metaData)
+	if err != nil {
+		respondWithError(w, http.StatusBadRequest, "Unable to update entry in database", err)
+		return
+	}
+
+	aspect, err := getVideoAspectRatio(tempFile.Name())
+	if err != nil {
+		respondWithError(w, http.StatusBadRequest, "failed to get video aspect ratio", err)
+	}
+	var prefix string
+	switch aspect {
+	case "16:9":
+		prefix = "landscape"
+	case "9:16":
+		prefix = "portrait"
+	default:
+		prefix = "other"
+	}
+
+	fileKey = prefix + "/" + fileKey
+	fmt.Println("Final S3 key:", fileKey)
+
 	objectParams := s3.PutObjectInput{
 		Bucket:      &cfg.s3Bucket,
 		Key:         &fileKey,
@@ -100,12 +125,14 @@ func (cfg *apiConfig) handlerUploadVideo(w http.ResponseWriter, r *http.Request)
 	_, err = cfg.s3Client.PutObject(r.Context(), &objectParams)
 	if err != nil {
 		respondWithError(w, http.StatusBadRequest, "Unable to put object into bucket", err)
+		return
 	}
 
-	dataURL := fmt.Sprintf("https://%s.s3.%s.amazonaws.com/%s", cfg.s3Bucket, cfg.s3Region, fileKey)
-	metaData.VideoURL = &dataURL
+	url := cfg.getObjectURL(fileKey)
+	metaData.VideoURL = &url
 	err = cfg.db.UpdateVideo(metaData)
 	if err != nil {
-		respondWithError(w, http.StatusBadRequest, "Unable to update entry in database", err)
+		respondWithError(w, http.StatusBadRequest, "failed to update video in database", err)
+		return
 	}
 }
